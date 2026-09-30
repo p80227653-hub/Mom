@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHAIN SENTINEL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script src="https://unpkg.com/react-is@18.3.1/umd/react-is.production.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<style>
+html,body{margin:0;background:#0A0E14}
+.cs-ui{font-family:'Inter',system-ui,sans-serif}
+.cs-mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.cs-grid{background-image:radial-gradient(#1E2733 1px,transparent 1px);background-size:24px 24px}
+.cs-scroll::-webkit-scrollbar{width:6px;height:6px}
+.cs-scroll::-webkit-scrollbar-thumb{background:#1E2733;border-radius:3px}
+.cs-node{cursor:pointer;transition:filter .15s}
+.cs-node:hover{filter:brightness(1.35)}
+.cs-flow{animation:cs-dash .7s linear infinite}
+.cs-pulse{transform-box:fill-box;transform-origin:center;animation:cs-pulse 2.4s ease-out infinite}
+.cs-scan{animation:cs-scan 3s linear infinite}
+.cs-blink{animation:cs-blink 1s steps(2) infinite}
+@keyframes cs-dash{to{stroke-dashoffset:-12}}
+@keyframes cs-pulse{from{transform:scale(1);opacity:.55}to{transform:scale(2.1);opacity:0}}
+@keyframes cs-scan{from{top:-2%}to{top:102%}}
+@keyframes cs-blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cs-flow,.cs-pulse,.cs-scan,.cs-blink{animation:none}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useEffect, useRef, useState } = React;
+const R = window.Recharts; // falls back to plain bars if the CDN build fails to load
+
+/* ---------- icons (inline SVG) ---------- */
+const ICONS = {
+  shield: <><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="M12 8v4" /><path d="M12 16h.01" /></>,
+  radar: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12 19 5" /></>,
+  search: <><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></>,
+  play: <polygon points="6 3 20 12 6 21 6 3" />,
+  reset: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></>,
+  left: <path d="m15 18-6-6 6-6" />,
+  right: <path d="m9 18 6-6-6-6" />,
+  copy: <><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></>,
+  term: <><polyline points="4 17 10 11 4 5" /><line x1="12" x2="20" y1="19" y2="19" /></>,
+  file: <><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></>,
+  send: <><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>,
+  check: <path d="M20 6 9 17l-5-5" />,
+};
+const Ic = ({ n, size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{ICONS[n]}</svg>
+);
+
+/* ---------- theme ---------- */
+const P = 'bg-[#0F141C] border border-[#1E2733]';
+const LBL = 'text-[10px] font-semibold tracking-[0.14em] text-[#6B7789] uppercase';
+
+/* ---------- mock data ---------- */
+const CH = '023456789acdefghjklmnpqrstuvwxyz';
+const mk = (s) => { let x = s * 7919; let o = 'bc1q'; for (let i = 0; i < 34; i++) { x = (x * 9301 + 49297) % 233280; o += CH[x % 32]; } return o; };
+const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const N = (id, kind, x, y, r, seed, o = {}) => ({ id, kind, x, y, r, addr: mk(seed), name: 'Unattributed wallet', bal: ((seed * 137) % 900) / 100 + 0.2, txs: (seed * 53) % 400 + 12, risk: (seed * 29) % 40 + 5, ...o });
+const NODES = [
+  N('S', 'suspect', 110, 300, 26, 1, { name: 'Suspect Wallet', bal: 12.48, txs: 214, risk: 94 }),
+  N('T', 'vasp', 890, 300, 31, 2, { name: 'Target VASP: Binance Hot Wallet', bal: 48210.77, txs: 88412, risk: 12 }),
+  N('P1', 'mid', 290, 175, 11, 3, { name: 'Intermediary 1', bal: 12.41, txs: 38, risk: 71 }),
+  N('P2', 'mid', 500, 405, 11, 4, { name: 'Intermediary 2', bal: 12.36, txs: 41, risk: 78 }),
+  N('P3', 'mid', 705, 190, 11, 5, { name: 'Intermediary 3', bal: 12.3, txs: 44, risk: 83 }),
+  ...[['d1', 230, 430], ['d2', 380, 300], ['d3', 390, 90], ['d4', 560, 90], ['d5', 610, 300], ['d6', 800, 450], ['d7', 790, 90],
+    ['d8', 160, 120], ['d9', 330, 535], ['d10', 650, 525], ['d11', 935, 160], ['d12', 940, 450], ['d13', 80, 460], ['d14', 480, 235]]
+    .map(([id, x, y], i) => N(id, 'other', x, y, 6 + (i % 3) * 1.5, 10 + i)),
+];
+const PATH = ['S', 'P1', 'P2', 'P3', 'T'];
+const HOPS = ['12.48 BTC', '12.41 BTC', '12.36 BTC', '12.30 BTC'];
+const EDGES = ('S-d8 S-d1 S-d2 S-d13 S-P1 P1-d3 P1-d2 P1-d14 P1-P2 P2-d1 P2-d9 P2-d5 P2-d10 P2-P3 P3-d4 P3-d7 P3-d5 P3-T ' +
+  'T-d6 T-d11 T-d12 T-d7 d2-d14 d3-d4 d3-d8 d4-d14 d5-d6 d6-d10 d6-d12 d1-d9 d1-d13 d10-d9').split(' ').map((e) => e.split('-'));
+
+const SCRIPT = [
+  [0, 'INFO', 'Case CS-2026-0417 · attribution job queued'],
+  [500, 'INFO', 'Fetching transaction graph · depth=4 · 1,284 txs'],
+  [1100, 'INFO', 'Parsing UTXO set… 3,912 outputs indexed'],
+  [1700, 'INFO', 'Clustering inputs (common-input-ownership) → 6 clusters'],
+  [2300, 'WARN', 'Peel chain detected · 6 hops · decaying change outputs'],
+  [2900, 'INFO', 'Hop 1/4 resolved · Suspect → Intermediary 1 · 12.48 BTC', 1],
+  [3500, 'WARN', 'Bridge detected · BTC → wBTC wrap · confidence 0.71'],
+  [4100, 'INFO', 'Hop 2/4 resolved · Intermediary 1 → 2 · 12.41 BTC', 2],
+  [4700, 'INFO', 'Hop 3/4 resolved · Intermediary 2 → 3 · 12.36 BTC', 3],
+  [5300, 'INFO', 'Hop 4/4 resolved · Intermediary 3 → deposit cluster · 12.30 BTC', 4],
+  [5900, 'WARN', 'Sweep-to-hot-wallet pattern matched · 3 similar sweeps in 48h'],
+  [6500, 'INFO', 'Matching cluster against labelled entity index (2,140 entities)'],
+  [7100, 'INFO', 'Scoring hypotheses · ensemble of 14 features'],
+  [7700, 'OK', 'Attribution complete · Binance 0.87 · UNKNOWN 0.08'],
+  [8200, 'INFO', 'SAHYOG draft generated · ready for analyst review'],
+];
+const LV = { INFO: '#8B98AB', WARN: '#F59E0B', OK: '#22D3EE' };
+const HYP = [{ n: 'Binance', c: 0.87 }, { n: 'UNKNOWN', c: 0.08 }, { n: 'Kraken', c: 0.03 }, { n: 'OKX', c: 0.02 }];
+const FEAT = [
+  { n: 'Sweep to hot wallet', v: 0.42 }, { n: 'Flow share', v: 0.27 }, { n: 'Peel-chain depth', v: 0.14 },
+  { n: 'Deposit clustering', v: 0.11 }, { n: 'Bridge hop penalty', v: -0.08 }, { n: 'Timing entropy', v: -0.04 },
+];
+const STAGES = ['Drafted', 'Legal review', 'Approved', 'Submitted'];
+const STATUS = ['DRAFT READY', 'IN LEGAL REVIEW', 'AWAITING APPROVAL', 'READY TO SUBMIT', 'SUBMITTED · DEMO'];
+const rc = (r) => (r > 70 ? '#EF4444' : r > 40 ? '#F59E0B' : '#22D3EE');
+
+/* ---------- small pieces ---------- */
+const Field = ({ k, v, c }) => (
+  <div><div className={LBL}>{k}</div><div className="cs-mono text-xs mt-0.5" style={{ color: c || '#E6EDF3' }}>{v}</div></div>
+);
+
+function FeatChart({ feat }) {
+  if (!R) {
+    return (
+      <div className="space-y-2 pt-2">
+        {feat.map((f, i) => (
+          <div key={f.n} className="text-[10px] text-[#8B98AB]">
+            <div className="flex justify-between"><span>{f.n}</span><span className="cs-mono">{f.v.toFixed(2)}</span></div>
+            <div className="h-2 rounded bg-[#1E2733]"><div className="h-full rounded transition-all duration-500" style={{ width: `${(Math.abs(f.v) / 0.5) * 100}%`, background: FEAT[i].v < 0 ? '#F59E0B' : '#22D3EE' }} /></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <R.ResponsiveContainer width="100%" height="100%">
+      <R.BarChart layout="vertical" data={feat} margin={{ top: 4, right: 12, bottom: 0, left: 0 }}>
+        <R.XAxis type="number" domain={[-0.15, 0.5]} tick={{ fill: '#6B7789', fontSize: 9 }} stroke="#1E2733" tickFormatter={(v) => v.toFixed(1)} />
+        <R.YAxis type="category" dataKey="n" width={112} tick={{ fill: '#8B98AB', fontSize: 10 }} stroke="#1E2733" />
+        <R.ReferenceLine x={0} stroke="#2A3646" />
+        <R.Tooltip cursor={{ fill: 'rgba(34,211,238,0.06)' }} contentStyle={{ background: '#0A0E14', border: '1px solid #1E2733', fontSize: 11 }}
+          labelStyle={{ color: '#E6EDF3' }} itemStyle={{ color: '#8B98AB' }} formatter={(v) => [Number(v).toFixed(2), 'contribution']} />
+        <R.Bar dataKey="v" radius={2} barSize={12}>
+          {feat.map((f, i) => <R.Cell key={i} fill={FEAT[i].v < 0 ? '#F59E0B' : '#22D3EE'} />)}
+        </R.Bar>
+      </R.BarChart>
+    </R.ResponsiveContainer>
+  );
+}
+
+function Graph({ phase, step, sel, onSel, sAddr }) {
+  const by = Object.fromEntries(NODES.map((n) => [n.id, n]));
+  return (
+    <svg viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" className="absolute inset-0 w-full h-full">
+      <defs>
+        <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="4" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+      {EDGES.map(([a, b]) => {
+        const A = by[a], B = by[b], i = PATH.indexOf(a);
+        const pi = i >= 0 && PATH[i + 1] === b ? i : -1;
+        const lit = pi >= 0 && step > pi;
+        return (
+          <g key={`${a}-${b}`}>
+            <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="#2A3646" strokeWidth="1" opacity={phase === 'idle' ? 0.9 : 0.4} />
+            {lit && (
+              <>
+                <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="#22D3EE" strokeWidth="3" opacity="0.5" filter="url(#glow)" />
+                <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="#22D3EE" strokeWidth="2" strokeDasharray="6 6" className="cs-flow" />
+                <text x={(A.x + B.x) / 2} y={(A.y + B.y) / 2 - 9} textAnchor="middle" fontSize="10" fill="#22D3EE" stroke="#0A0E14" strokeWidth="3" paintOrder="stroke" className="cs-mono">{HOPS[pi]}</text>
+              </>
+            )}
+          </g>
+        );
+      })}
+      {NODES.map((n) => {
+        const pi = PATH.indexOf(n.id);
+        const lit = n.kind === 'mid' && step >= pi;
+        const big = n.kind === 'suspect' || n.kind === 'vasp';
+        const col = n.kind === 'suspect' ? '#EF4444' : n.kind === 'vasp' || lit ? '#22D3EE' : '#6B7789';
+        const addr = short(n.id === 'S' ? sAddr : n.addr);
+        const lines = n.kind === 'suspect' ? ['SUSPECT WALLET', addr] : n.kind === 'vasp' ? ['TARGET VASP', 'Binance Hot Wallet', addr] : [addr];
+        return (
+          <g key={n.id} className="cs-node" onClick={() => onSel(n.id)}>
+            {big && <circle cx={n.x} cy={n.y} r={n.r} fill="none" stroke={col} strokeWidth="1.5" className="cs-pulse" />}
+            {sel === n.id && <circle cx={n.x} cy={n.y} r={n.r + 8} fill="none" stroke="#E6EDF3" strokeWidth="1" strokeDasharray="3 3" opacity="0.8" />}
+            <circle cx={n.x} cy={n.y} r={n.r} fill={big ? col : lit ? '#0E3A44' : '#1B2430'} stroke={col} strokeWidth={big ? 2 : 1.5} filter={big || lit ? 'url(#glow)' : undefined} />
+            {big && <><circle cx={n.x} cy={n.y} r={n.r * 0.5} fill="#0A0E14" opacity="0.55" /><circle cx={n.x} cy={n.y} r={n.r * 0.18} fill={col} /></>}
+            {lines.map((t, i) => {
+              const head = big && i === 0, last = i === lines.length - 1 && (i > 0 || !big);
+              return (
+                <text key={i} x={n.x} y={n.y + n.r + (big ? 17 : 13) + i * 13} textAnchor="middle" fontSize={head ? 11.5 : 9.5} fontWeight={head ? 700 : 400}
+                  fill={head ? '#E6EDF3' : last ? '#6B7789' : col} className={head || !last ? 'cs-ui' : 'cs-mono'} style={head ? { letterSpacing: '0.1em' } : undefined}>{t}</text>
+              );
+            })}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ---------- app ---------- */
+function App() {
+  const [q, setQ] = useState(NODES[0].addr);
+  const [phase, setPhase] = useState('idle'); // idle | running | done
+  const [step, setStep] = useState(0);
+  const [prog, setProg] = useState(0);
+  const [logs, setLogs] = useState([]);
+  const [sel, setSel] = useState('S');
+  const [open, setOpen] = useState(true);
+  const [shy, setShy] = useState(-1);
+  const timers = useRef([]);
+  const term = useRef(null);
+
+  const clear = () => { timers.current.forEach(clearTimeout); timers.current = []; };
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(() => { if (term.current) term.current.scrollTop = term.current.scrollHeight; }, [logs]);
+
+  const run = () => {
+    clear();
+    setLogs([]); setStep(0); setProg(0); setShy(-1); setPhase('running');
+    SCRIPT.forEach(([t, lv, msg, st], i) => {
+      timers.current.push(setTimeout(() => {
+        setLogs((l) => [...l, { t, lv, msg }]);
+        if (st) setStep(st);
+        setProg((i + 1) / SCRIPT.length);
+      }, t + 250));
+    });
+    timers.current.push(setTimeout(() => { setPhase('done'); setShy(0); }, SCRIPT[SCRIPT.length - 1][0] + 700));
+  };
+  const reset = () => { clear(); setPhase('idle'); setStep(0); setProg(0); setLogs([]); setShy(-1); };
+
+  const sAddr = q.trim() || NODES[0].addr;
+  const node = NODES.find((n) => n.id === sel);
+  const fin = phase === 'done';
+  const k = fin ? 1 : phase === 'running' ? prog * 0.6 : 0;
+  const feat = FEAT.map((f) => ({ ...f, v: fin ? f.v : 0 }));
+  const st = { idle: ['IDLE', '#6B7789'], running: ['TRACING', '#F59E0B'], done: ['ATTRIBUTED', '#22D3EE'] }[phase];
+  const nodeAddr = node ? (node.id === 'S' ? sAddr : node.addr) : '';
+  const hop = node ? PATH.indexOf(node.id) : -1;
+  const role = !node ? '' : node.kind === 'suspect' ? 'Origin of funds' : node.kind === 'vasp' ? 'Exchange hot wallet' : node.kind === 'mid' ? `Hop ${hop} of 4` : 'Off-path wallet';
+
+  return (
+    <div className="cs-ui flex flex-col min-h-screen lg:h-screen lg:overflow-hidden bg-[#0A0E14] text-[#E6EDF3]">
+      {/* classification banner */}
+      <div className="flex items-center justify-center gap-2 bg-[#EF4444]/15 border-b border-[#EF4444]/40 py-1 text-[11px] font-semibold tracking-[0.25em] text-[#EF4444]">
+        <Ic n="shield" size={13} />RESTRICTED - DEMO DATA ONLY
+      </div>
+
+      {/* top bar */}
+      <header className={`${P} border-x-0 border-t-0 flex flex-wrap items-center gap-3 px-4 py-2.5`}>
+        <div className="flex items-center gap-2 mr-2">
+          <Ic n="radar" size={20} className="text-[#22D3EE]" />
+          <span className="font-bold tracking-[0.2em] text-sm">CHAIN SENTINEL</span>
+        </div>
+        <div className="cs-mono text-[11px] px-2 py-1 border border-[#1E2733] rounded bg-[#0A0E14] text-[#8B98AB]">
+          CASE <span className="text-[#22D3EE]">CS-2026-0417</span>
+        </div>
+        <div className="relative flex-1 min-w-[240px]">
+          <Ic n="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6B7789]" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && phase !== 'running' && run()}
+            spellCheck={false} placeholder="Enter wallet address" aria-label="Wallet address"
+            className="cs-mono w-full bg-[#0A0E14] border border-[#1E2733] rounded pl-9 pr-3 py-2 text-xs text-[#E6EDF3] outline-none focus:border-[#22D3EE] placeholder:text-[#4B5768]" />
+        </div>
+        <button onClick={run} disabled={phase === 'running'}
+          className="flex items-center gap-2 bg-[#22D3EE] text-[#0A0E14] font-semibold text-xs px-4 py-2 rounded hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60 disabled:cursor-not-allowed">
+          {phase === 'running' ? <Ic n="radar" className="animate-spin" /> : <Ic n="play" />}
+          {phase === 'running' ? 'Tracing…' : 'Run Attribution'}
+        </button>
+        <button onClick={reset} title="Reset" aria-label="Reset" className="p-2 border border-[#1E2733] rounded text-[#8B98AB] hover:text-[#22D3EE] hover:border-[#22D3EE]">
+          <Ic n="reset" />
+        </button>
+      </header>
+
+      <main className="flex flex-col lg:flex-row lg:flex-1 lg:min-h-0">
+        {/* graph canvas */}
+        <section className="relative flex-1 h-[400px] lg:h-auto min-h-0 bg-[#0A0E14] cs-grid overflow-hidden">
+          <Graph phase={phase} step={step} sel={sel} onSel={setSel} sAddr={sAddr} />
+          {phase === 'running' && <div className="cs-scan pointer-events-none absolute left-0 right-0 h-px bg-[#22D3EE]/60 shadow-[0_0_18px_4px_rgba(34,211,238,0.35)]" />}
+          <div className="absolute top-3 left-3 cs-mono text-[10px] tracking-widest text-[#6B7789]">GRAPH VIEW · {NODES.length} NODES · {EDGES.length} EDGES</div>
+          <div className="absolute top-3 right-3 flex items-center gap-2 px-2.5 py-1 rounded border border-[#1E2733] bg-[#0F141C]/90 cs-mono text-[10px]" style={{ color: st[1] }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: st[1] }} />{st[0]}
+          </div>
+          <div className="absolute bottom-3 left-3 flex flex-wrap gap-x-4 gap-y-1 px-3 py-1.5 rounded border border-[#1E2733] bg-[#0F141C]/90 text-[10px] text-[#8B98AB]">
+            <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-[#EF4444]" />Suspect</span>
+            <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-[#22D3EE]" />Target VASP</span>
+            <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-[#6B7789]" />Intermediary</span>
+          </div>
+        </section>
+
+        {/* inspector */}
+        <aside className={`${P} border-y-0 border-r-0 shrink-0 w-full flex flex-col min-h-0 transition-all duration-200 ${open ? 'lg:w-[360px]' : 'lg:w-11'}`}>
+          <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-2 px-3 py-2.5 border-b border-[#1E2733] text-[#8B98AB] hover:text-[#22D3EE]">
+            <Ic n={open ? 'right' : 'left'} size={16} />
+            {open && <span className="text-[10px] font-semibold tracking-[0.14em] uppercase">Attribution Inspector</span>}
+          </button>
+          {!open && <span className="hidden lg:block cs-mono text-[10px] tracking-[0.3em] text-[#6B7789] [writing-mode:vertical-rl] mx-auto mt-4">ATTRIBUTION</span>}
+          {open && (
+            <div className="cs-scroll flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
+              <div className="grid grid-cols-3 gap-2">
+                {[['Hops', phase === 'idle' ? '—' : `${step}/4`], ['Traced', phase === 'idle' ? '—' : '12.48 BTC'], ['Txs', phase === 'idle' ? '—' : '1,284']].map(([a, b]) => (
+                  <div key={a} className="border border-[#1E2733] rounded bg-[#0A0E14] px-2.5 py-2"><Field k={a} v={b} /></div>
+                ))}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={LBL}>Ranked hypotheses</span>
+                  <span className="cs-mono text-[9px] px-1.5 py-0.5 rounded border" style={{ color: fin ? '#22D3EE' : '#F59E0B', borderColor: fin ? '#22D3EE55' : '#F59E0B55' }}>
+                    {fin ? 'FINAL' : phase === 'running' ? 'PROVISIONAL' : 'PENDING'}
+                  </span>
+                </div>
+                {HYP.map((h, i) => {
+                  const v = h.c * k;
+                  return (
+                    <div
